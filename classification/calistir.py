@@ -17,6 +17,8 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 EPOCHS = 20
 BATCH_SIZE = 32
 NUM_CLASSES = 2 
+WINDOW_SIZE = 30  
+STEP_SIZE = 1     
 
 FILE_VERILER = "../gercekVeriler/Ocak-Kasım 10 dk lık veriler.xlsm"
 FILE_TEMP1 = "../gercekVeriler/Ocak-Kasım 10 dk lık sıcaklıklar 1.xlsm"
@@ -54,31 +56,49 @@ def load_data_with_label(plant_id, label, veriler_path, temp1_path, temp2_path):
     feats = merged.values
     labels = np.full(len(feats), label)
     
-    print(f"      -> {len(feats)} adet veri başarıyla etiketlendi.")
+    print(f"      -> {len(feats)} adet veri başarıyla yüklendi.")
     return feats, labels
 
-print("1/5: Veriler Etiketlenerek Yükleniyor...")
-X_0, y_0 = load_data_with_label(1, 0, FILE_VERILER, FILE_TEMP1, FILE_TEMP2)
-X_1, y_1 = load_data_with_label(12, 1, FILE_VERILER, FILE_TEMP1, FILE_TEMP2)
+def create_windows(data, window_size, step_size=1):
+    """Zaman serisi verisini pencerelere böler ve Dense katmanlar için düzleştirir."""
+    windows = []
+    for i in range(0, len(data) - window_size + 1, step_size):
+        windows.append(data[i:i + window_size])
+    windows = np.array(windows)
+    return windows.reshape(windows.shape[0], -1)
 
-if len(X_0)==0 or len(X_1)==0:
+
+print("1/5: Veriler Yükleniyor...")
+X_0_raw, _ = load_data_with_label(1, 0, FILE_VERILER, FILE_TEMP1, FILE_TEMP2)
+X_1_raw, _ = load_data_with_label(12, 1, FILE_VERILER, FILE_TEMP1, FILE_TEMP2)
+
+if len(X_0_raw)==0 or len(X_1_raw)==0:
     print("HATA: Veri yüklenemedi!")
     exit()
 
-X_all = np.vstack([X_0, X_1])
-y_all = np.concatenate([y_0, y_1])
-
-print(f"\n   -> Toplam Veri Sayısı: {len(X_all)}")
-print(f"   -> Sınıf Dağılımı: Sağlam={len(X_0)}, Hasarlı={len(X_1)}")
-
-print("\n2/5: Veri Hazırlığı (Scaling & One-Hot)...")
+print("\n2/5: Veri Hazırlığı (Scaling, Windowing & One-Hot)...")
 scaler = MinMaxScaler()
-X_scaled = scaler.fit_transform(X_all) 
+scaler.fit(np.vstack([X_0_raw, X_1_raw]))
+
+X_0_scaled = scaler.transform(X_0_raw)
+X_1_scaled = scaler.transform(X_1_raw)
+
+X_0_win = create_windows(X_0_scaled, WINDOW_SIZE, STEP_SIZE)
+X_1_win = create_windows(X_1_scaled, WINDOW_SIZE, STEP_SIZE)
+
+y_0_win = np.full(len(X_0_win), 0)
+y_1_win = np.full(len(X_1_win), 1)
+
+X_all = np.vstack([X_0_win, X_1_win])
+y_all = np.concatenate([y_0_win, y_1_win])
+
+print(f"   -> Toplam Pencere Sayısı: {len(X_all)}")
+print(f"   -> Sınıf Dağılımı: Sağlam Pencereler={len(X_0_win)}, Hasarlı Pencereler={len(X_1_win)}")
 
 y_categorical = to_categorical(y_all, NUM_CLASSES)
 
 X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y_categorical, test_size=0.2, random_state=42, stratify=y_all
+    X_all, y_categorical, test_size=0.2, random_state=42, stratify=y_all
 )
 
 print("\n3/5: Deep Classifier Modeli Kuruluyor...")

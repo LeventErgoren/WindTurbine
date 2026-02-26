@@ -14,6 +14,8 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 EPOCHS = 20
 BATCH_SIZE = 32
+WINDOW_SIZE = 30  
+STEP_SIZE = 1  
 
 FILE_VERILER = "../gercekVeriler/Ocak-Kasım 10 dk lık veriler.xlsm"
 FILE_TEMP1 = "../gercekVeriler/Ocak-Kasım 10 dk lık sıcaklıklar 1.xlsm"
@@ -51,6 +53,14 @@ def load_and_merge_data(plant_id, veriler_path, temp1_path, temp2_path):
     print(f"      -> Plant {plant_id}: {merged.shape[0]} satır veri başarıyla birleştirildi.")
     return merged.values, merged.columns
 
+def create_windows(data, window_size, step_size=1):
+    """Zaman serisi verisini pencerelere böler ve Dense katmanlar için düzleştirir (flatten)."""
+    windows = []
+    for i in range(0, len(data) - window_size + 1, step_size):
+        windows.append(data[i:i + window_size])
+    windows = np.array(windows)
+    return windows.reshape(windows.shape[0], -1)
+
 
 print("1/5: Sağlam Veriler (Plant 1) Yükleniyor...")
 raw_healthy, feature_names = load_and_merge_data(1, FILE_VERILER, FILE_TEMP1, FILE_TEMP2)
@@ -60,13 +70,16 @@ print("\n2/5: Hasarlı/Test Verileri (Plant 12) Yükleniyor...")
 raw_damaged, _ = load_and_merge_data(12, FILE_VERILER, FILE_TEMP1, FILE_TEMP2)
 if len(raw_damaged) == 0: print("HATA: Hasarlı veri yüklenemedi!"); exit()
 
-print("\n3/5: Veriler Ölçekleniyor...")
+print("\n3/5: Veriler Ölçekleniyor ve Pencerelere Ayrılıyor...")
 scaler = MinMaxScaler()
 scaled_healthy = scaler.fit_transform(raw_healthy)
 scaled_damaged = scaler.transform(raw_damaged)
 
-X_train, X_val = train_test_split(scaled_healthy, test_size=0.1, random_state=42)
-X_damaged = scaled_damaged
+windowed_healthy = create_windows(scaled_healthy, WINDOW_SIZE, STEP_SIZE)
+windowed_damaged = create_windows(scaled_damaged, WINDOW_SIZE, STEP_SIZE)
+
+X_train, X_val = train_test_split(windowed_healthy, test_size=0.1, random_state=42)
+X_damaged = windowed_damaged
 
 print(f"   -> Eğitim Verisi (Normal): {X_train.shape}")
 print(f"   -> Test Verisi (Hasarlı): {X_damaged.shape}")
@@ -180,7 +193,7 @@ def plot_reconstruction_sample(X_real, X_pred, title, sample_idx=50):
     plt.plot(X_pred[sample_idx], label='Reconstructed Values', color='red', marker='x', alpha=0.7)
     
     plt.title(title + f" (Time Step / Row: {sample_idx})")
-    plt.xlabel('Sensor Feature Index')
+    plt.xlabel('Sensor Feature Index (Flattened Window)')
     plt.ylabel('Scaled Value')
     plt.grid(True)
     plt.legend()
